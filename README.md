@@ -15,7 +15,7 @@ myHub/
     ├── refReads.sorted.bam.bai  # ... and its index
     └── alignment.hal            # Cactus alignment
 ```
-Three files, three jobs:
+
 - **hub.txt** — top level: the hub's name and a pointer to `genomes.txt`.
 - **genomes.txt** — one stanza per assembly: where its `.2bit` and `trackDb.txt` live, plus display defaults.
 - **trackDb.txt** — inside each genome's directory: one stanza per track.
