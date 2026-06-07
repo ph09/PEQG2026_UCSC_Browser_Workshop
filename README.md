@@ -59,7 +59,7 @@ chrY    3667352
 > Then add `chromAlias dmelY/dmelY.chromAlias.txt` to the genome stanza in `genomes.txt` (the path is relative to `hub.txt`). For an assembly with thousands of sequences, convert it to bigBed and use `chromAliasBb` so name lookups stay fast. You rarely hand-build this for a UCSC assembly: dm6 already ships a ready-made `dm6.chromAlias.txt` (with the real GenBank/RefSeq/Ensembl IDs) in its bigZips directory.
 ## 3. Build the tracks
 All track data files go in the genome's directory (`myHub/dmelY/`), next to `trackDb.txt`.
-### 3a. Your annotations (BED → bigBed) — *runs live*
+### 3a. Your annotations (BED → bigBed)
 `exampleRegions.bed` holds five demo windows along chrY in BED4 (`chrom start end name`) — stand-ins for whatever you'd actually annotate (genes, repeats, candidate regions). bigBed input must be sorted, then indexed against `chrom.sizes`:
 ```
 sort -k1,1 -k2,2n exampleRegions.bed > exampleRegions.sorted.bed
@@ -171,8 +171,8 @@ You should land on `chrY` at the `defaultPos` window with three tracks: your exa
 hubCheck <URL-to-your-hub.txt>
 ```
 The browser caches hub files for ~5 minutes; append `udcTimeout=1` to your browser URL to see edits immediately.
-## 8. Add a BLAT / In-Silico PCR server (optional)
-A `.2bit` is also all you need to give your assembly its own **BLAT** ("align my sequence to this genome") and **In-Silico PCR** ("where do these primers land"). You run one or two `gfServer` processes on a machine reachable from the internet, then point the hub at them from `genomes.txt`. Unlike the track files above, the BLAT server is a *live process*, not a static file — it has to stay running.
+## 8. Add a BLAT / In-Silico PCR server
+A `.2bit` is also all you need to give your assembly its own **BLAT** ("align my sequence to this genome") and **In-Silico PCR** ("where do these primers land"). You run one or two `gfServer` processes on a machine reachable from the internet, then point the hub at them from `genomes.txt`. 
 
 From the directory holding `dmelY.2bit`, start the servers. Convention is a **translated** (amino-acid) server on `17777` and a **DNA** server on `17779` — the DNA one also handles In-Silico PCR:
 ```
@@ -194,7 +194,6 @@ BLAT and PCR now work for your assembly. This URL opens the BLAT page with your 
 ```
 https://genome.ucsc.edu/cgi-bin/hgBlat?hubUrl=<URL-to-myHub/hub.txt>
 ```
-A few things that trip people up:
 - **Use a real public hostname/IP, not `localhost`** (unless you're running your own local browser/GBiB) — `genome.ucsc.edu` has to be able to reach the server — and make sure the chosen ports are open through your firewall.
 - **The server is persistent.** A dedicated `gfServer` loads the index into memory and must keep running; add the commands to a startup script (e.g. `rc.local`) so they survive reboots. For many assemblies or infrequent use, set up a **dynamic** `gfServer` instead (pre-built indexes served on demand via an `xinetd` super-server) — see UCSC's "Running your own gfServer".
 - **`-mask`** makes the translated server skip soft-masked (lowercase) repeats; drop it if you'd rather match repeats too.
