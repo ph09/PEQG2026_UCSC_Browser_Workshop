@@ -18,7 +18,6 @@ myHub/
     ├── refReads.sorted.bam.bai  # ... and its index
     └── alignment.hal            # Cactus alignment
 ```
-Three files, three jobs:
 - **hub.txt** — top level: the hub's name and a pointer to `genomes.txt`.
 - **genomes.txt** — one stanza per assembly: where its `.2bit` and `trackDb.txt` live, plus display defaults.
 - **trackDb.txt** — inside each genome's directory: one stanza per track.
@@ -34,12 +33,16 @@ conda activate ucsc_hub
 ## 2. Get the sequence and convert: FASTA → 2bit
 We'll grab the real Y chromosome as FASTA or you can just use the one in this repo. Just pull the `chrY` out of the complete `2bit` file. Work inside the genome's directory (`myHub/dmelY/`):
 ```
+mkdir myHub
+cd myHub
+mkdir dmelY
+cd dmelY
 wget https://hgdownload.soe.ucsc.edu/goldenPath/dm6/bigZips/dm6.2bit
-twoBitToFa dm6.2bit:chrY chrY.fa        # extract just the Y chromosome
+twoBitToFa dm6.2bit:chrY dm6_chrY.fa        # extract just the Y chromosome
 ```
 Now the step that makes the genome browsable — FASTA → 2bit — plus a `chrom.sizes`:
 ```
-faToTwoBit chrY.fa dmelY.2bit
+faToTwoBit dm6_chrY.fa dmelY.2bit
 twoBitInfo dmelY.2bit stdout | sort -k2,2nr > dmelY.chrom.sizes
 cat dmelY.chrom.sizes
 ```
@@ -60,12 +63,22 @@ chrY    3667352
 ## 3. Build the tracks
 All track data files go in the genome's directory (`myHub/dmelY/`), next to `trackDb.txt`.
 ### 3a. Your annotations (BED → bigBed)
-`exampleRegions.bed` holds five demo windows along chrY in BED4 (`chrom start end name`) — stand-ins for whatever you'd actually annotate (genes, repeats, candidate regions). bigBed input must be sorted, then indexed against `chrom.sizes`:
+`exampleRegions.bed` holds five demo windows along chrY in BED4 (`chrom start end name`) — stand-ins for anything you'd annotate (genes, repeats, candidate regions). bigBed input must be sorted, then indexed against `chrom.sizes`:
 ```
-sort -k1,1 -k2,2n exampleRegions.bed > exampleRegions.sorted.bed
+sort -k1,1 -k2,2n ../../dm6_chrY_exampleRegion.bed > exampleRegions.sorted.bed
 bedToBigBed exampleRegions.sorted.bed dmelY.chrom.sizes exampleRegions.bb
 ```
-Same recipe covers most data: signal → `bigWig`, variants → `bgzip`+`tabix` VCF, gene models → `bigGenePred`. (You could instead pull dm6's NCBI RefSeq gene models for chrY and convert those in case you want to try this out!)
+Same recipe covers most data: signal → `bigWig`, variants → `bgzip`+`tabix` VCF, gene models → `bigGenePred`. (You could also pull dm6's NCBI RefSeq gene models for chrY and convert those in case you want to try this out!)
+Add this to the `trackDb.txt` file in the same directory.
+```
+track exampleRegions
+shortLabel Example regions
+longLabel Demo regions of interest along chrY
+type bigBed 4
+visibility pack
+color 20,90,160
+bigDataUrl exampleRegions.bb
+```
 ### 3b. Alignment BAM track
 You can align a different genome sequence or reads using minimap2 (or your aligner of choice!) **to your assembly** so the result is in *your* coordinates, then sort and index.
 ```
@@ -131,18 +144,18 @@ bigDataUrl alignment.hal
 ```
 > `bigDataUrl` here is relative to `trackDb.txt`. Since the data files sit in the same `dmelY/` directory, the paths are just bare filenames.
 ## 5. Host it
-Upload the whole `myHub/` directory to a server that supports **HTTP byte-range requests** — an institutional web server, an S3/cloud bucket, or GitHub Pages (Settings → Pages → deploy from `main`) for a small demo. Because every path inside the hub is relative, you upload the folder as-is; your hub URL is the path to `hub.txt`:
+Upload the whole `myHub/` directory to a server that supports **HTTP byte-range requests**. Because every path inside the hub is relative, you upload the folder as-is; your hub URL is the path to `hub.txt`:
 ```
-https://<your-user>.github.io/<your-repo>/myHub/hub.txt
+https://wherever/your/folder/is/myHub/hub.txt
 ```
-Make sure the BAM index (`refReads.sorted.bam.bai`) is uploaded alongside its `.bam`. The dm6 chrY `.2bit` is only ~0.9 MB, so it fits GitHub easily — but a real vertebrate `.2bit`, BAM, and HAL run from hundreds of MB to several GB and will exceed GitHub's 100 MB/file limit, so host those on institutional or cloud storage.
+Make sure the BAM index (`refReads.sorted.bam.bai`) is uploaded alongside its `.bam`. 
 ## 6. Load it in the browser
 - **Menu:** My Data → Track Hubs → **My Hubs** → paste your `hub.txt` URL → **Add Hub**. Your assembly appears in the genome drop-down.
-- **Direct link** (good for slides):
+- **Direct link**:
 ```
 https://genome.ucsc.edu/cgi-bin/hgTracks?genome=dmelY&hubUrl=<URL-to-myHub/hub.txt>
 ```
-You should land on `chrY` at the `defaultPos` window with three tracks: your example regions, the minimap2 reads, and the Cactus snake showing where the reference aligns.
+You should land on `chrY` at the `defaultPos` window with one track.
 ## 7. Validate & iterate
 ```
 hubCheck <URL-to-your-hub.txt>
@@ -153,15 +166,16 @@ A `.2bit` is also all you need to give your assembly its own **BLAT** ("align my
 
 From the directory holding `dmelY.2bit`, start the servers. Convention is a **translated** (amino-acid) server on `17777` and a **DNA** server on `17779` — the DNA one also handles In-Silico PCR:
 ```
+rsync -avP hgdownload.soe.ucsc.edu::genome/admin/exe/linux.x86_64/blat/ ~/bin/
+chmod +x ~/bin/gfServer
+
 # translated / protein queries  -> transBlat
-gfServer start yourServer.yourInstitution.edu 17777 -trans -mask \
-  -log=dmelY.trans.log dmelY.2bit &
+~/bin/gfServer start yourServer.yourInstitution.edu 17777 -trans -mask -log=dmelY.trans.log dmelY.2bit &
 
 # DNA queries + In-Silico PCR    -> blat + isPcr
-gfServer start yourServer.yourInstitution.edu 17779 -stepSize=5 \
-  -log=dmelY.untrans.log dmelY.2bit &
+~/bin/gfServer start yourServer.yourInstitution.edu 17779 -stepSize=5 -log=dmelY.untrans.log dmelY.2bit &
 ```
-Then add three lines to this assembly's stanza in `genomes.txt`, with **matching ports** (note the capital **B** in `transBlat`):
+Then add three lines to this assembly's stanza in `genomes.txt`, with **matching ports**:
 ```
 transBlat yourServer.yourInstitution.edu 17777
 blat yourServer.yourInstitution.edu 17779
@@ -174,15 +188,13 @@ https://genome.ucsc.edu/cgi-bin/hgBlat?hubUrl=<URL-to-myHub/hub.txt>
 - **Use a real public hostname/IP, not `localhost`** (unless you're running your own local browser/GBiB) — `genome.ucsc.edu` has to be able to reach the server — and make sure the chosen ports are open through your firewall.
 - **The server is persistent.** A dedicated `gfServer` loads the index into memory and must keep running; add the commands to a startup script (e.g. `rc.local`) so they survive reboots. For many assemblies or infrequent use, set up a **dynamic** `gfServer` instead (pre-built indexes served on demand via an `xinetd` super-server) — see UCSC's "Running your own gfServer".
 - **`-mask`** makes the translated server skip soft-masked (lowercase) repeats; drop it if you'd rather match repeats too.
-- **Debug outside the browser first.** Check the server with `gfServer status yourServer.yourInstitution.edu 17779`, and run a test query with `gfClient` from the `.2bit` directory before assuming the hub config is wrong.
+- **Debug outside the browser first.** Check the server with `gfServer status yourServer.yourInstitution.edu 17779`, and run a test query with `gfClient` from the `.2bit` directory.
 ## 9. Going further
 - **Description page / track groups / cytoband ideogram** — add a `description.html` (referenced with `htmlPath` in the genome stanza), a `groups.txt`, and a `cytoBandIdeo` track inside the genome directory to polish a real hub.
-- **Automate** — `hal2assemblyHub.py` (HAL toolkit) for comparative hubs; [MakeHub](https://github.com/Gaius-Augustus/MakeHub) and [G-OnRamp](https://g-onramp.org/) for annotation hubs.
 - **Make it public / GenArk** — if your assembly is in NCBI with a `GCA_/GCF_` accession, request it at `https://genome.ucsc.edu/assemblyRequest` and UCSC will host the browser for you.
 ## References
 - Assembly Hub User Guide — https://genome.ucsc.edu/goldenPath/help/assemblyHubHelp.html
 - Quick Start Guide to Assembly Hubs — https://genome.ucsc.edu/goldenPath/help/hubQuickStartAssembly.html
 - Running your own gfServer — https://genomewiki.ucsc.edu/index.php/Running_your_own_gfServer
 - Track Database (trackDb) settings — https://genome.ucsc.edu/goldenPath/help/trackDb/trackDbHub.html
-- HAL toolkit / hal2assemblyHub — https://github.com/ComparativeGenomicsToolkit/hal
 - dm6 downloads (bigZips) — https://hgdownload.soe.ucsc.edu/goldenPath/dm6/bigZips/
