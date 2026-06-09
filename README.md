@@ -1,10 +1,10 @@
 # PEQG2026_UCSC_Browser_Workshop
-Build your own UCSC Genome Browser for a genome that **isn't in UCSC/GenArk yet** — turn a FASTA into a `.2bit`, attach your own tracks (for example, **Cactus** and **minimap2** alignments to a reference species), host it, and load it. If you just assembled a genome but cannot submit to GenBank just yet, you can make an **assembly hub**!
+Build your own UCSC Genome Browser for a genome that **isn't in UCSC/GenArk yet** — turn a FASTA into a `.2bit`, attach your own tracks, host it, and load it. If you just assembled a genome but cannot submit to GenBank just yet, you can make an **assembly hub**!
 
-This walkthrough uses a short chromosome as the stand-in for "your new assembly": the *Drosophila melanogaster* **Y chromosome** from dm6 (`chrY`, **3,667,352 bp**).
+This walkthrough uses a short chromosome as the stand-in: the *Drosophila melanogaster* **Y chromosome** from dm6.
 
 ## 0. What is an assembly hub?
-A **track hub** adds tracks on top of a reference UCSC already hosts (e.g. hg38, or a publicly available assembly in GenArk). An **assembly hub** also supplies the reference sequence itself, as a `.2bit` file, so you can browse a genome UCSC has never seen.
+A **track hub** adds tracks on top of a reference UCSC already hosts (e.g. hg38, or a publicly available assembly in GenArk). An **assembly hub** also supplies the reference sequence itself, as a `.2bit` file, so you can browse a new genome.
 A hub is just a folder of files reachable over `https://`, organized into three plain-text config files plus your data, with **each genome in its own subdirectory**:
 ```
 myHub/
@@ -32,7 +32,7 @@ conda activate ucsc_hub
 ```
 (The kent tools are also precompiled at `http://hgdownload.soe.ucsc.edu/admin/exe/`.)
 ## 2. Get the sequence and convert: FASTA → 2bit
-We'll grab the real Y chromosome as FASTA, then treat it exactly like your own assembly. UCSC ships the whole dm6 genome as a `.2bit`, so pull just `chrY` out of it. Work inside the genome's directory (`myHub/dmelY/`):
+We'll grab the real Y chromosome as FASTA or you can just use the one in this repo. Just pull the `chrY` out of the complete `2bit` file. Work inside the genome's directory (`myHub/dmelY/`):
 ```
 wget https://hgdownload.soe.ucsc.edu/goldenPath/dm6/bigZips/dm6.2bit
 twoBitToFa dm6.2bit:chrY chrY.fa        # extract just the Y chromosome
@@ -47,7 +47,7 @@ Expected:
 ```
 chrY    3667352
 ```
-(Your own project would start right here at `faToTwoBit yourAssembly.fa …`; the `wget`/`twoBitToFa` is just how we borrow a real chromosome for the demo.)
+(Your own project would start right here at `faToTwoBit yourAssembly.fa …`)
 > The names in `chrom.sizes` (here just `chrY`) are now the *only* names the browser knows. Every coordinate you give it later — track features, `defaultPos`, and the genome names inside your alignments — must use these exact names.
 > If your BED/VCF, collaborators, or a reference use different sequence names (GenBank `CM…`, RefSeq `NC_…`, Ensembl `Y`, UCSC `chrY`), add a `chromAlias` file so the browser accepts all of them for searches and custom tracks. It's a tab-separated table — a header naming each scheme, then one row per sequence with your assembly's names in the first column:
 >
@@ -56,7 +56,7 @@ chrY    3667352
 > chrY	Y	<GenBank-id>	<RefSeq-id>
 > ```
 >
-> Then add `chromAlias dmelY/dmelY.chromAlias.txt` to the genome stanza in `genomes.txt` (the path is relative to `hub.txt`). For an assembly with thousands of sequences, convert it to bigBed and use `chromAliasBb` so name lookups stay fast. You rarely hand-build this for a UCSC assembly: dm6 already ships a ready-made `dm6.chromAlias.txt` (with the real GenBank/RefSeq/Ensembl IDs) in its bigZips directory.
+> Then add `chromAlias dmelY/dmelY.chromAlias.txt` to the genome stanza in `genomes.txt` (the path is relative to `hub.txt`). For an assembly with thousands of sequences, convert it to bigBed and use `chromAliasBb` so name lookups stay fast.
 ## 3. Build the tracks
 All track data files go in the genome's directory (`myHub/dmelY/`), next to `trackDb.txt`.
 ### 3a. Your annotations (BED → bigBed)
@@ -65,47 +65,24 @@ All track data files go in the genome's directory (`myHub/dmelY/`), next to `tra
 sort -k1,1 -k2,2n exampleRegions.bed > exampleRegions.sorted.bed
 bedToBigBed exampleRegions.sorted.bed dmelY.chrom.sizes exampleRegions.bb
 ```
-Same recipe covers most data: signal → `bigWig`, variants → `bgzip`+`tabix` VCF, gene models → `bigGenePred`. (To show real chrY genes, you could instead pull dm6's NCBI RefSeq gene models for chrY and convert those.)
-### 3b. minimap2 alignment → BAM track
-To compare a reference species, align it **to your assembly** so the result is in *your* coordinates, then sort and index.
+Same recipe covers most data: signal → `bigWig`, variants → `bgzip`+`tabix` VCF, gene models → `bigGenePred`. (You could instead pull dm6's NCBI RefSeq gene models for chrY and convert those in case you want to try this out!)
+### 3b. Alignment BAM track
+You can align a different genome sequence or reads using minimap2 (or your aligner of choice!) **to your assembly** so the result is in *your* coordinates, then sort and index.
 ```
 minimap2 -a chrY.fa refSpecies.fa | samtools sort -o refReads.sorted.bam
 samtools index refReads.sorted.bam        # produces refReads.sorted.bam.bai
 ```
 Hosting it is then just one stanza in `trackDb.txt`, `type bam`:
 ```
-track refMinimap2
-shortLabel Ref (minimap2)
-longLabel Reference species aligned to chrY with minimap2
+track AlignmentOfX
+shortLabel Ref (alignment)
+longLabel Some sort of alignment
 type bam
 visibility pack
 bigDataUrl refReads.sorted.bam
 ```
-> A `bam` track needs `refReads.sorted.bam.bai` hosted in the same folder, same root name. No `.bai`, no track. (Same rule for `vcfTabix` and its `.tbi`.)
+> A `bam` track needs `refReads.sorted.bam.bai` hosted in the same folder, same root name. 
 > Your assembly must be the minimap2 *target* (`-a target.fa query.fa`). If you aligned the other way round, the BAM is in the reference's coordinates and won't display on your hub.
-### 3c. Cactus alignment → HAL snake track — *pre-made*
-Conceptually:
-```
-# seqFile lists the tree + each genome's FASTA, e.g.:
-#   (refSpecies,dmelY);
-#   refSpecies   refSpecies.fa
-#   dmelY        chrY.fa
-cactus ./jobstore seqFile.txt alignment.hal
-halStats --genomes alignment.hal          # confirm the genome names in the HAL
-```
-Snake tracks are UCSC's native HAL visualization. Hosting is one stanza in `trackDb.txt`, `type halSnake`:
-```
-track refCactusSnake
-shortLabel Ref (Cactus)
-longLabel Cactus/HAL alignment of reference species onto chrY
-type halSnake
-otherSpecies refSpecies
-visibility full
-bigDataUrl alignment.hal
-```
-> The hub's `genome` value (here `dmelY`) must be one of the genome names *inside* the `.hal`, and `otherSpecies` must be another. Use the names `halStats --genomes` reports — these are the names you set in the Cactus `seqFile`, so make them match your assembly's name from the start.
->
-> *Shortcut:* `hal2assemblyHub.py alignment.hal outDir` (from the HAL toolkit) auto-builds an entire comparative assembly hub — 2bit, snake tracks for every pair, the works — instead of hand-writing the stanza. Handy once you have several genomes.
 ## 4. Wire it together: hub.txt, genomes.txt, trackDb.txt
 **`myHub/hub.txt`** — names the hub and points at `genomes.txt`:
 ```
@@ -198,7 +175,7 @@ https://genome.ucsc.edu/cgi-bin/hgBlat?hubUrl=<URL-to-myHub/hub.txt>
 - **The server is persistent.** A dedicated `gfServer` loads the index into memory and must keep running; add the commands to a startup script (e.g. `rc.local`) so they survive reboots. For many assemblies or infrequent use, set up a **dynamic** `gfServer` instead (pre-built indexes served on demand via an `xinetd` super-server) — see UCSC's "Running your own gfServer".
 - **`-mask`** makes the translated server skip soft-masked (lowercase) repeats; drop it if you'd rather match repeats too.
 - **Debug outside the browser first.** Check the server with `gfServer status yourServer.yourInstitution.edu 17779`, and run a test query with `gfClient` from the `.2bit` directory before assuming the hub config is wrong.
-## 9. Going further (real genomes)
+## 9. Going further
 - **Description page / track groups / cytoband ideogram** — add a `description.html` (referenced with `htmlPath` in the genome stanza), a `groups.txt`, and a `cytoBandIdeo` track inside the genome directory to polish a real hub.
 - **Automate** — `hal2assemblyHub.py` (HAL toolkit) for comparative hubs; [MakeHub](https://github.com/Gaius-Augustus/MakeHub) and [G-OnRamp](https://g-onramp.org/) for annotation hubs.
 - **Make it public / GenArk** — if your assembly is in NCBI with a `GCA_/GCF_` accession, request it at `https://genome.ucsc.edu/assemblyRequest` and UCSC will host the browser for you.
